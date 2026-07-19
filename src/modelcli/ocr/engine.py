@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -22,12 +21,8 @@ class OcrResult:
     def to_text(self) -> str:
         return "\n".join(line.text for line in self.lines)
 
-    def to_json(self) -> str:
-        return json.dumps(
-            {"lines": [asdict(line) for line in self.lines]},
-            ensure_ascii=False,
-            indent=2,
-        )
+    def to_dict(self) -> dict[str, list[dict]]:
+        return {"lines": [asdict(line) for line in self.lines]}
 
     def to_markdown(self) -> str:
         """Naive markdown output: each line as a paragraph; not real layout recovery."""
@@ -66,25 +61,36 @@ class OcrEngine:
             )
         return OcrResult(lines=lines)
 
-    def draw_boxes(self, image: Path, out: Path) -> None:
+    def draw_boxes(self, image: Path, out: Path, *, force: bool = False) -> Path:
         """Render detected boxes onto the image and save to out."""
         import cv2
         import numpy as np
         from rapidocr_onnxruntime import RapidOCR, VisRes
 
         font_path = _find_cjk_font()
+        from modelcli.errors import output_error
+        from modelcli.files import atomic_output_path
+
         engine = RapidOCR()
         result, _ = engine(str(image))
-        if not result:
-            return
-        boxes = [np.array(e[0], dtype=np.float32) for e in result]
-        texts = [e[1] for e in result]
-        scores = [e[2] for e in result]
-        vis = VisRes()
-        vis_img = vis.draw_ocr_box_txt(str(image), boxes, texts, scores, font_path=font_path)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        # vis returns RGB numpy array; cv2 expects BGR
-        cv2.imwrite(str(out), cv2.cvtColor(vis_img, cv2.COLOR_RGB2BGR))
+        with atomic_output_path(out, force=force) as temporary:
+            if result:
+                boxes = [np.array(e[0], dtype=np.float32) for e in result]
+                texts = [e[1] for e in result]
+                scores = [e[2] for e in result]
+                vis = VisRes()
+                vis_img = vis.draw_ocr_box_txt(
+                    str(image), boxes, texts, scores, font_path=font_path
+                )
+                written = cv2.imwrite(
+                    str(temporary), cv2.cvtColor(vis_img, cv2.COLOR_RGB2BGR)
+                )
+            else:
+                original = cv2.imread(str(image), cv2.IMREAD_UNCHANGED)
+                written = original is not None and cv2.imwrite(str(temporary), original)
+            if not written:
+                raise output_error("OUTPUT_WRITE_FAILED", f"Cannot write annotated image: {out}")
+        return out.resolve()
 
 
 def _find_cjk_font() -> str | None:

@@ -25,3 +25,13 @@ Thumbs.db
 # Generated audio
 *.wav
 !tests/fixtures/.gitkeep
+
+# Runtime model artifacts
+manifests/
+.modelcli-cache/
+.download_ok
+*.onnx
+*.onnx.data
+*.pt
+*.pth
+*.safetensors

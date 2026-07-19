@@ -16,30 +16,21 @@ import soundfile as sf
 import torch
 from transformers import AutoModelForCausalLM
 
-from modelcli.config import (
-    CACHE_ROOT,
-    MOSS_DEFAULT_PROMPT_NAME,
-    MOSS_DEFAULT_PROMPT_URL,
-    MODELSCOPE_MOSS_AUDIO_TOKENIZER,
-    MODELSCOPE_MOSS_TTS,
-    TTS_SAMPLE_RATE,
-)
-from modelcli.models.cache import ensure_file_from_url, ensure_modelscope
-
-
 @dataclass
 class TtsResult:
     audio: np.ndarray  # float32 (N, 2) stereo at 48 kHz
     sample_rate: int
-
-
-_PROMPTS_DIR = CACHE_ROOT / "moss_prompts"
+    reached_frame_cap: bool = False
 
 
 def default_prompt_audio() -> Path:
-    """Return path to the bundled Chinese reference prompt, downloading if needed."""
-    _PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
-    return ensure_file_from_url(MOSS_DEFAULT_PROMPT_URL, MOSS_DEFAULT_PROMPT_NAME, _PROMPTS_DIR)
+    """Return the installed default Chinese reference prompt."""
+    from modelcli.config import CACHE_ROOT
+    from modelcli.models.locking import model_lock
+    from modelcli.models.lifecycle import prepare_tts_model
+
+    with model_lock("tts", CACHE_ROOT):
+        return prepare_tts_model(validate=False)[2]
 
 
 class TtsEngine:
@@ -49,13 +40,15 @@ class TtsEngine:
         self._model = None
         self._main_dir: Path | None = None
         self._tok_dir: Path | None = None
+        self._prompt_path: Path | None = None
 
     def _ensure_model(self):
         if self._model is not None:
             return self._model, self._main_dir, self._tok_dir
 
-        self._main_dir = ensure_modelscope(MODELSCOPE_MOSS_TTS)
-        self._tok_dir = ensure_modelscope(MODELSCOPE_MOSS_AUDIO_TOKENIZER)
+        from modelcli.models.lifecycle import prepare_tts_model
+
+        self._main_dir, self._tok_dir, self._prompt_path = prepare_tts_model(validate=False)
 
         import os
         os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
@@ -86,10 +79,10 @@ class TtsEngine:
             max_new_frames: Upper bound on generated audio frames
                 (1 frame = 80 ms at 12.5 Hz token rate).
         """
-        model, main_dir, tok_dir = self._ensure_model()
+        model, _main_dir, tok_dir = self._ensure_model()
         device = next(model.parameters()).device
 
-        prompt_path = str(prompt_audio) if prompt_audio else str(default_prompt_audio())
+        prompt_path = str(prompt_audio) if prompt_audio else str(self._prompt_path)
         # Write to a temp wav first; model.inference reads audio from file path.
         import tempfile
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
@@ -111,7 +104,13 @@ class TtsEngine:
         finally:
             Path(out_path).unlink(missing_ok=True)
 
-        return TtsResult(audio=np.asarray(audio, dtype=np.float32), sample_rate=int(sr))
+        audio_array = np.asarray(audio, dtype=np.float32)
+        frame_count = len(audio_array) / (int(sr) * 0.08)
+        return TtsResult(
+            audio=audio_array,
+            sample_rate=int(sr),
+            reached_frame_cap=frame_count >= max_new_frames - 0.5,
+        )
 
     def synthesize_to_file(
         self,
@@ -119,10 +118,24 @@ class TtsEngine:
         out: Path,
         prompt_audio: Path | None = None,
         max_new_frames: int = 600,
+        force: bool = False,
     ) -> TtsResult:
-        result = self.synthesize(text, prompt_audio=prompt_audio, max_new_frames=max_new_frames)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        sf.write(str(out), result.audio, result.sample_rate)
+        from modelcli.errors import output_error
+        from modelcli.files import atomic_output_path
+
+        with atomic_output_path(out, force=force) as temporary:
+            result = self.synthesize(
+                text,
+                prompt_audio=prompt_audio,
+                max_new_frames=max_new_frames,
+            )
+            try:
+                sf.write(str(temporary), result.audio, result.sample_rate)
+                with sf.SoundFile(str(temporary)) as output_file:
+                    if output_file.frames <= 0:
+                        raise RuntimeError("empty audio")
+            except Exception as exc:
+                raise output_error("OUTPUT_WRITE_FAILED", f"Cannot write audio output: {out}") from exc
         return result
 
 

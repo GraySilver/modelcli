@@ -88,3 +88,31 @@ def test_asr_engine_uses_model_lifecycle_prepare(monkeypatch, tmp_path: Path) ->
     assert engine._ensure_model() == tmp_path
     assert engine._ensure_model() == tmp_path
     assert calls == [False]
+
+
+def test_asr_inference_uses_quantized_onnx(monkeypatch, tmp_path: Path) -> None:
+    calls: list[tuple[str, int, bool]] = []
+
+    class FakeSenseVoice:
+        def __init__(self, path: str, *, batch_size: int, quantize: bool) -> None:
+            calls.append((path, batch_size, quantize))
+
+        def __call__(self, audio, *, language: str, use_itn: bool):
+            assert audio.shape == (16_000,)
+            assert language == "en"
+            assert use_itn is True
+            return ["<|en|><|NEUTRAL|><|Speech|>hello"]
+
+    monkeypatch.setattr("funasr_onnx.SenseVoiceSmall", FakeSenseVoice)
+    engine = AsrEngine(lang="en")
+
+    segments = engine._transcribe_with_funasr_onnx(
+        tmp_path,
+        np.zeros(16_000, dtype=np.float32),
+        16_000,
+        [(0.0, 1.0)],
+        True,
+    )
+
+    assert calls == [(str(tmp_path), 1, True)]
+    assert segments == [AsrSegment(0.0, 1.0, "hello", "neutral", ("Speech",))]

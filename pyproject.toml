@@ -1,12 +1,13 @@
 [project]
 name = "modelcli"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local CLI for small open-source models: OCR, ASR, TTS"
 requires-python = ">=3.11,<3.13"
 dependencies = [
     "typer>=0.12",
     "rich>=13",
     "platformdirs>=4",
+    "filelock>=3.15",
     "modelscope>=1.30",
     "onnxruntime>=1.17",
     "numpy>=1.26,<2",
@@ -24,7 +25,7 @@ dependencies = [
     "onnxscript",
     "silero-vad>=6.0",
     # TTS (MOSS-TTS-Nano, voice-clone, 48 kHz stereo, 0.1B params)
-    "moss-tts-nano @ git+https://github.com/OpenMOSS/MOSS-TTS-Nano.git",
+    "moss-tts-nano @ git+https://github.com/OpenMOSS/MOSS-TTS-Nano.git@11619374849c649486584e3b10ed55b176a924ee",
     "safetensors>=0.5",
 ]
 

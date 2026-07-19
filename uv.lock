@@ -623,9 +623,10 @@ wheels = [
 
 [[package]]
 name = "modelcli"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
+    { name = "filelock" },
     { name = "funasr" },
     { name = "funasr-onnx" },
     { name = "modelscope" },
@@ -659,10 +660,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "filelock", specifier = ">=3.15" },
     { name = "funasr", specifier = "==1.3.19" },
     { name = "funasr-onnx", specifier = "==0.4.2" },
     { name = "modelscope", specifier = ">=1.30" },
-    { name = "moss-tts-nano", git = "https://github.com/OpenMOSS/MOSS-TTS-Nano.git" },
+    { name = "moss-tts-nano", git = "https://github.com/OpenMOSS/MOSS-TTS-Nano.git?rev=11619374849c649486584e3b10ed55b176a924ee" },
     { name = "numpy", specifier = ">=1.26,<2" },
     { name = "onnx" },
     { name = "onnxruntime", specifier = ">=1.17" },
@@ -721,7 +723,7 @@ wheels = [
 [[package]]
 name = "moss-tts-nano"
 version = "0.1.0"
-source = { git = "https://github.com/OpenMOSS/MOSS-TTS-Nano.git#11619374849c649486584e3b10ed55b176a924ee" }
+source = { git = "https://github.com/OpenMOSS/MOSS-TTS-Nano.git?rev=11619374849c649486584e3b10ed55b176a924ee#11619374849c649486584e3b10ed55b176a924ee" }
 dependencies = [
     { name = "fastapi" },
     { name = "numpy" },

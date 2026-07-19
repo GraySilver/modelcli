@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
@@ -41,9 +41,16 @@ class AsrResult:
     text: str
     segments: list[AsrSegment]
 
+    def to_dict(self, *, language: str) -> dict:
+        return {
+            "text": self.text,
+            "language": language,
+            "segments": [asdict(segment) for segment in self.segments],
+        }
+
 
 class AsrEngine:
-    """SenseVoice-Small (ONNX) ASR with optional VAD segmentation."""
+    """Quantized SenseVoice-Small ONNX ASR with optional VAD segmentation."""
 
     def __init__(self, lang: str = "auto") -> None:
         self.lang = lang
@@ -101,7 +108,7 @@ class AsrEngine:
     ) -> list[AsrSegment]:
         from funasr_onnx import SenseVoiceSmall
 
-        model = SenseVoiceSmall(str(model_dir), batch_size=1)
+        model = SenseVoiceSmall(str(model_dir), batch_size=1, quantize=True)
         results: list[AsrSegment] = []
         for start, end in segments_bounds:
             s = int(start * sr)
