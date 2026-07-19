@@ -1,7 +1,7 @@
 [project]
 name = "modelcli"
-version = "0.2.0"
-description = "Local CLI for small open-source models: OCR, ASR, TTS"
+version = "0.3.0"
+description = "Local CLI for small open-source models: detection, OCR, ASR, TTS"
 requires-python = ">=3.11,<3.13"
 dependencies = [
     "typer>=0.12",

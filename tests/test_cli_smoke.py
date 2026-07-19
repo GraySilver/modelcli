@@ -29,6 +29,7 @@ def test_top_level_help() -> None:
     r = _run("--help")
     assert r.returncode == 0
     assert "ocr" in r.stdout
+    assert "detect" in r.stdout
     assert "asr" in r.stdout
     assert "tts" in r.stdout
     assert "models" in r.stdout
@@ -38,6 +39,13 @@ def test_ocr_help() -> None:
     r = _run("ocr", "--help")
     assert r.returncode == 0
     assert "image" in r.stdout.lower()
+
+
+def test_detect_help() -> None:
+    r = _run("detect", "--help")
+    assert r.returncode == 0
+    assert "confidence" in r.stdout.lower()
+    assert "draw-boxes" in r.stdout.lower()
 
 
 def test_asr_help() -> None:

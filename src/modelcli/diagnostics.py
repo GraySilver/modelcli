@@ -22,11 +22,23 @@ def capabilities() -> dict[str, Any]:
         "schema_version": SCHEMA_VERSION,
         "global_options": ["--json", "--allow-download", "--debug", "--version"],
         "commands": {
+            "detect": {
+                "options": ["--confidence", "--class", "--draw-boxes", "--force"]
+            },
             "ocr": {"options": ["--out", "--markdown", "--draw-boxes", "--force"]},
             "asr": {"options": ["--out", "--lang", "--no-vad", "--timestamps", "--emotion"]},
             "tts": {"options": ["--out", "--prompt-audio", "--max-duration", "--play", "--force"]},
             "models": {"actions": ["list", "install", "remove", "verify", "prefetch", "clean"]},
             "doctor": {"options": ["--deep"]},
+        },
+        "detect": {
+            "model": "PicoDet-L 416 COCO",
+            "dataset": "COCO",
+            "classes": 80,
+            "input_size": [416, 416],
+            "provider": "CPUExecutionProvider",
+            "structured_boxes": True,
+            "annotated_image": True,
         },
         "ocr": {
             "model": "PP-OCRv4 mobile",
@@ -148,7 +160,11 @@ def _deep_model_check(name: str) -> dict[str, Any]:
         from modelcli.models.locking import model_lock
 
         with model_lock(name, CACHE_ROOT):
-            if name == "asr":
+            if name == "detect":
+                from modelcli.models.lifecycle import prepare_detect_model
+
+                prepare_detect_model(validate=True)
+            elif name == "asr":
                 from modelcli.models.lifecycle import prepare_asr_model
 
                 prepare_asr_model(validate=True)

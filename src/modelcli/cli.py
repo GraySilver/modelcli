@@ -1,4 +1,4 @@
-"""Command-line interface for OCR, ASR, TTS, and model management."""
+"""Command-line interface for detection, OCR, ASR, TTS, and model management."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from typer import _click as click
 from typer.core import TyperGroup
 
 from modelcli import __version__
+from modelcli.detect.command import detect_cmd
 from modelcli.errors import (
     ExitCode,
     ModelCliError,
@@ -75,7 +76,7 @@ class ModelCliGroup(TyperGroup):
 app = typer.Typer(
     name="modelcli",
     cls=ModelCliGroup,
-    help="Local CLI for small open-source models: OCR, ASR, TTS.",
+    help="Local CLI for small open-source models: detection, OCR, ASR, TTS.",
     invoke_without_command=True,
     no_args_is_help=True,
     add_completion=False,
@@ -83,6 +84,7 @@ app = typer.Typer(
 )
 models_app = typer.Typer(help="Model cache management", no_args_is_help=True)
 app.add_typer(models_app, name="models")
+app.command("detect", help="Detect COCO objects in an image.")(detect_cmd)
 
 
 class AsrLanguage(str, Enum):
@@ -302,7 +304,9 @@ def capabilities_cmd() -> None:
 
 
 @app.command("doctor")
-def doctor_cmd(deep: bool = typer.Option(False, "--deep", help="Load installed ASR/TTS models")) -> None:
+def doctor_cmd(
+    deep: bool = typer.Option(False, "--deep", help="Load installed detection/ASR/TTS models"),
+) -> None:
     """Check dependencies, paths, model files, hashes, and providers."""
     from modelcli.diagnostics import doctor
 
@@ -326,13 +330,13 @@ def models_install(
     target: ModelTarget = typer.Argument(..., help="Model capability to install"),
     refresh: bool = typer.Option(False, "--refresh", help="Download and atomically replace the installed model"),
 ) -> None:
-    """Install, adopt, or explicitly refresh an ASR/TTS model."""
+    """Install, adopt, or explicitly refresh a detection/ASR/TTS model."""
     _run_model_action("install", target, refresh=refresh)
 
 
 @models_app.command("remove")
 def models_remove(target: ModelTarget = typer.Argument(..., help="Model capability to remove")) -> None:
-    """Remove an ASR or TTS model from the dedicated cache."""
+    """Remove a detection, ASR, or TTS model from the dedicated cache."""
     _run_model_action("remove", target)
 
 
@@ -437,7 +441,7 @@ def _report_error(error: ModelCliError, *, cause: Exception | None = None) -> No
 
 
 def _preparse_runtime(arguments: list[str]) -> RuntimeContext:
-    commands = {"ocr", "asr", "tts", "models", "capabilities", "doctor"}
+    commands = {"detect", "ocr", "asr", "tts", "models", "capabilities", "doctor"}
     command_index = next((i for i, value in enumerate(arguments) if value in commands), len(arguments))
     global_arguments = arguments[:command_index]
     operation = arguments[command_index] if command_index < len(arguments) else "modelcli"

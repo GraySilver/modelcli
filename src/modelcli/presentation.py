@@ -41,6 +41,24 @@ def format_asr_segments(
     return "\n".join(lines)
 
 
+def print_detections(value: dict[str, Any]) -> None:
+    detections = value["detections"]
+    if not detections:
+        console.print("No objects detected.")
+        return
+    table = Table(title="Detections")
+    for heading in ("Class", "Confidence", "Box (x1, y1, x2, y2)"):
+        table.add_column(heading)
+    for detection in detections:
+        box = detection["bbox"]
+        table.add_row(
+            detection["label"],
+            f"{detection['confidence']:.3f}",
+            f"{box['x1']}, {box['y1']}, {box['x2']}, {box['y2']}",
+        )
+    console.print(table)
+
+
 def print_models(value: dict[str, Any]) -> None:
     table = Table(title="Models")
     for heading in ("Capability", "Model", "Status", "Manifest", "Size"):

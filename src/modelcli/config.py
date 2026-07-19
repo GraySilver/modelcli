@@ -42,6 +42,22 @@ MODELSCOPE_REVISION = "master"
 DOWNLOAD_TIMEOUT_SECONDS = 120
 MODEL_LOCK_TIMEOUT_SECONDS = 30.0
 
+# --- Object detection (PicoDet-L 416 COCO, postprocessed ONNX) ---
+PICODET_MODEL_ID = "PaddleDetection/PicoDet-L-416-COCO"
+PICODET_MODEL_REVISION = "release/2.8"
+PICODET_MODEL_URL = (
+    "https://paddledet.bj.bcebos.com/deploy/third_engine/"
+    "picodet_l_416_lcnet_postprocessed.onnx"
+)
+PICODET_MODEL_NAME = "picodet_l_416_lcnet_postprocessed.onnx"
+PICODET_MODEL_SHA256 = (
+    "c5550352511bd46ff271711278a34e302d451cf172a1ea65e14cdc7da2a0a112"
+)
+PICODET_MODEL_SIZE = 23_244_019
+PICODET_CACHE_NAME = "picodet_l_416_coco"
+PICODET_INPUT_SIZE = 416
+DETECT_DEFAULT_CONFIDENCE = 0.5
+
 # --- ASR defaults ---
 ASR_SAMPLE_RATE = 16000
 ASR_DEFAULT_LANG = "auto"  # auto | zh | en | yue | ja | ko

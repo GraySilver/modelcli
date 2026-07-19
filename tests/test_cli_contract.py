@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 
 from modelcli.asr.engine import AsrResult, AsrSegment
 from modelcli.cli import app
+from modelcli.detect.engine import BoundingBox, DetectResult, Detection
 from modelcli.ocr.engine import OcrLine, OcrResult
 
 runner = CliRunner()
@@ -33,8 +34,98 @@ def test_version_supports_human_and_agent_modes() -> None:
     agent = runner.invoke(app, ["--json", "--version"])
 
     assert human.exit_code == 0
-    assert human.stdout == "0.2.0\n"
-    assert _json(agent)["result"] == {"version": "0.2.0"}
+    assert human.stdout == "0.3.0\n"
+    assert _json(agent)["result"] == {"version": "0.3.0"}
+
+
+def test_agent_detect_returns_structured_boxes_and_filters(monkeypatch, tmp_path: Path) -> None:
+    image = tmp_path / "input.png"
+    annotated = tmp_path / "annotated.png"
+    _image(image)
+
+    class FakeEngine:
+        def detect(self, path: Path, *, confidence: float, classes: tuple[str, ...]):
+            assert path == image
+            assert confidence == 0.6
+            assert classes == ("person", "car")
+            return DetectResult(
+                24,
+                16,
+                confidence,
+                classes,
+                (Detection(0, "person", 0.9, BoundingBox(1, 2, 20, 15)),),
+            )
+
+        def draw_boxes(self, path, output, result, *, force):
+            assert path == image
+            assert output == annotated
+            assert result.detections[0].label == "person"
+            assert force is False
+            output.write_bytes(b"image")
+            return output.resolve()
+
+    monkeypatch.setattr("modelcli.detect.engine.DetectEngine", FakeEngine)
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "detect",
+            str(image),
+            "--confidence",
+            "0.6",
+            "--class",
+            "person",
+            "--class",
+            "car",
+            "--draw-boxes",
+            str(annotated),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.count("\n") == 1
+    assert "Saved annotated image" not in result.stderr
+    payload = _json(result)
+    assert payload["operation"] == "detect"
+    assert payload["result"] == {
+        "width": 24,
+        "height": 16,
+        "confidence_threshold": 0.6,
+        "class_filter": ["person", "car"],
+        "detections": [
+            {
+                "class_id": 0,
+                "label": "person",
+                "confidence": 0.9,
+                "bbox": {"x1": 1, "y1": 2, "x2": 20, "y2": 15},
+            }
+        ],
+        "annotated_image": str(annotated.resolve()),
+    }
+
+
+def test_detect_rejects_unknown_class_before_model_load(monkeypatch, tmp_path: Path) -> None:
+    image = tmp_path / "input.png"
+    _image(image)
+    monkeypatch.setattr(
+        "modelcli.detect.engine.DetectEngine",
+        lambda: (_ for _ in ()).throw(AssertionError("must not load model")),
+    )
+
+    result = runner.invoke(app, ["--json", "detect", str(image), "--class", "automobile"])
+
+    assert result.exit_code == 3
+    assert _json(result)["error"]["code"] == "INVALID_CLASS"
+
+
+def test_detect_confidence_out_of_range_is_usage_error(tmp_path: Path) -> None:
+    image = tmp_path / "input.png"
+    _image(image)
+
+    result = runner.invoke(app, ["--json", "detect", str(image), "--confidence", "1.1"])
+
+    assert result.exit_code == 2
+    assert _json(result)["error"]["code"] == "CLI_USAGE_ERROR"
 
 
 def test_agent_ocr_returns_single_structured_envelope(monkeypatch, tmp_path: Path) -> None:

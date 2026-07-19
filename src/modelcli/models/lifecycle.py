@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import os
 import shutil
 import tempfile
-from dataclasses import asdict, dataclass
-from enum import Enum
 from pathlib import Path
-from typing import Literal
 
 from modelcli.config import (
     CACHE_ROOT,
@@ -25,6 +21,16 @@ from modelcli.config import (
     SENSEVOICE_TOKENIZER_URL,
 )
 from modelcli.errors import model_error
+from modelcli.models.detection import (
+    DETECT_MODEL_NAME,
+    create_detect_manifest,
+    detect_artifact_paths,
+    detect_manifest_matches,
+    detect_owned_relatives,
+    is_detect_complete,
+    load_detect_model,
+    prepare_detect_model,
+)
 from modelcli.models.locking import model_lock
 from modelcli.models.manifest import (
     create_manifest,
@@ -34,46 +40,8 @@ from modelcli.models.manifest import (
     verify_manifest,
 )
 from modelcli.protocol import current_runtime
-
-
-class ModelTarget(str, Enum):
-    asr = "asr"
-    tts = "tts"
-    all = "all"
-
-
-ModelStatusName = Literal["installed", "missing", "bundled"]
-
-
-@dataclass(frozen=True)
-class ModelStatus:
-    name: str
-    model: str
-    status: ModelStatusName
-    size_bytes: int
-    managed: bool
-    manifest_status: str = "not_applicable"
-    verification_status: str = "not_applicable"
-    requested_revision: str | None = None
-    source_revision: str | None = None
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-
-@dataclass(frozen=True)
-class ModelActionResult:
-    name: str
-    status: ModelStatusName
-    changed: bool
-    size_bytes: int
-    manifest_status: str = "missing"
-    verification_status: str = "unverified"
-    requested_revision: str | None = None
-    source_revision: str | None = None
-
-    def to_dict(self) -> dict:
-        return asdict(self)
+from modelcli.models.storage import path_size, publish_refresh, remove_path
+from modelcli.models.types import ModelActionResult, ModelStatus, ModelTarget
 
 
 ASR_MODEL_NAME = "SenseVoiceSmall INT8 ONNX"
@@ -102,12 +70,9 @@ def asr_cache_dir(cache_root: Path | None = None) -> Path:
     return (cache_root or CACHE_ROOT) / MODELSCOPE_SENSEVOICE.replace("/", "__")
 
 
-def tts_cache_dir(cache_root: Path | None = None) -> Path:
-    return cache_root or CACHE_ROOT
-
-
 def list_models() -> list[ModelStatus]:
     return [
+        _managed_status("detect"),
         _managed_status("asr"),
         _managed_status("tts"),
         ModelStatus("ocr", "PP-OCRv4 mobile", "bundled", 0, False),
@@ -130,6 +95,8 @@ def install_models(
             before = _managed_status(name)
             if refresh:
                 _refresh_model(name)
+            elif name == "detect":
+                prepare_detect_model(validate=True, allow_download=True)
             elif name == "asr":
                 prepare_asr_model(validate=True, allow_download=True)
             else:
@@ -172,7 +139,11 @@ def verify_models(target: ModelTarget) -> list[dict]:
             if not _is_complete(name, CACHE_ROOT):
                 raise model_error("MODEL_NOT_INSTALLED", f"Model '{name}' is not installed")
             manifest = load_manifest(CACHE_ROOT, name)
-            if name == "asr" and (
+            if name == "detect" and (
+                manifest is None or not detect_manifest_matches(manifest)
+            ):
+                load_detect_model(detect_artifact_paths(CACHE_ROOT)[0].parent)
+            elif name == "asr" and (
                 manifest is None or not _manifest_matches_standard("asr", manifest)
             ):
                 _load_asr(asr_cache_dir(CACHE_ROOT))
@@ -313,7 +284,9 @@ def _refresh_model(name: str) -> None:
     CACHE_ROOT.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=f".modelcli-{name}-refresh-", dir=CACHE_ROOT.parent))
     try:
-        if name == "asr":
+        if name == "detect":
+            prepare_detect_model(validate=True, cache_root=temporary)
+        elif name == "asr":
             prepare_asr_model(validate=True, cache_root=temporary)
         else:
             prepare_tts_model(validate=True, cache_root=temporary)
@@ -324,35 +297,18 @@ def _refresh_model(name: str) -> None:
 
 
 def _publish_refresh(name: str, source_root: Path) -> None:
-    relatives = _owned_relatives(name)
-    backup_root = Path(tempfile.mkdtemp(prefix=f".modelcli-{name}-backup-", dir=CACHE_ROOT.parent))
-    published: list[Path] = []
-    backed_up: list[tuple[Path, Path]] = []
-    try:
-        for relative in relatives:
-            source = source_root / relative
-            destination = CACHE_ROOT / relative
-            backup = backup_root / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            if destination.exists():
-                backup.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(destination, backup)
-                backed_up.append((backup, destination))
-            if source.exists():
-                os.replace(source, destination)
-                published.append(destination)
+    def validate() -> None:
         if not _is_complete(name, CACHE_ROOT):
             raise model_error("MODEL_INSTALL_FAILED", f"Refreshed model '{name}' is incomplete")
         verify_manifest(CACHE_ROOT, name)
-    except Exception:
-        for destination in reversed(published):
-            _remove_path(destination)
-        for backup, destination in reversed(backed_up):
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(backup, destination)
-        raise
-    finally:
-        shutil.rmtree(backup_root, ignore_errors=True)
+
+    publish_refresh(
+        name=name,
+        source_root=source_root,
+        cache_root=CACHE_ROOT,
+        relatives=_owned_relatives(name),
+        validate=validate,
+    )
 
 
 def _remove_one(name: str) -> bool:
@@ -360,7 +316,7 @@ def _remove_one(name: str) -> bool:
     for relative in _owned_relatives(name):
         path = CACHE_ROOT / relative
         if path.exists():
-            _remove_path(path)
+            remove_path(path)
             changed = True
     if name == "tts":
         prompt_dir = CACHE_ROOT / "moss_prompts"
@@ -384,10 +340,14 @@ def _managed_status(name: str) -> ModelStatus:
             source_revision = manifest.get("source_revision")
     except Exception:
         manifest_state = "invalid"
-    model_name = ASR_MODEL_NAME if name == "asr" else TTS_MODEL_NAME
+    model_names = {
+        "detect": DETECT_MODEL_NAME,
+        "asr": ASR_MODEL_NAME,
+        "tts": TTS_MODEL_NAME,
+    }
     return ModelStatus(
         name=name,
-        model=model_name,
+        model=model_names[name],
         status="installed" if complete else "missing",
         size_bytes=_owned_size(name) if complete else 0,
         managed=True,
@@ -401,6 +361,9 @@ def _managed_status(name: str) -> ModelStatus:
 def _adopt_manifest_if_needed(name: str, root: Path) -> None:
     manifest = load_manifest(root, name)
     if manifest is not None and _manifest_matches_standard(name, manifest):
+        return
+    if name == "detect":
+        create_detect_manifest(root)
         return
     if name == "tts":
         _validate_default_prompt(root)
@@ -419,6 +382,8 @@ def _adopt_manifest_if_needed(name: str, root: Path) -> None:
 
 
 def _manifest_matches_standard(name: str, manifest: dict) -> bool:
+    if name == "detect":
+        return detect_manifest_matches(manifest)
     expected_ids = (
         [MODELSCOPE_SENSEVOICE]
         if name == "asr"
@@ -437,6 +402,8 @@ def _requested_revision(name: str) -> str:
 
 
 def _artifact_paths(name: str, root: Path) -> list[Path]:
+    if name == "detect":
+        return detect_artifact_paths(root)
     if name == "asr":
         model_dir = asr_cache_dir(root)
         return [
@@ -453,6 +420,8 @@ def _artifact_paths(name: str, root: Path) -> list[Path]:
 
 
 def _is_complete(name: str, root: Path) -> bool:
+    if name == "detect":
+        return is_detect_complete(root)
     if name == "asr":
         model_dir = asr_cache_dir(root)
         if not all(_is_nonempty_file(model_dir / item) for item in ASR_REQUIRED_FILES):
@@ -486,6 +455,8 @@ def _tts_paths(root: Path) -> tuple[Path, Path, Path]:
 
 
 def _owned_relatives(name: str) -> tuple[Path, ...]:
+    if name == "detect":
+        return detect_owned_relatives()
     if name == "asr":
         return (
             Path(MODELSCOPE_SENSEVOICE.replace("/", "__")),
@@ -500,30 +471,15 @@ def _owned_relatives(name: str) -> tuple[Path, ...]:
 
 
 def _target_names(target: ModelTarget) -> tuple[str, ...]:
-    return ("asr", "tts") if target == ModelTarget.all else (target.value,)
+    return ("detect", "asr", "tts") if target == ModelTarget.all else (target.value,)
 
 
 def _owned_size(name: str) -> int:
-    return sum(_path_size(CACHE_ROOT / relative) for relative in _owned_relatives(name))
-
-
-def _path_size(path: Path) -> int:
-    if not path.exists():
-        return 0
-    if path.is_file():
-        return path.stat().st_size
-    return sum(child.stat().st_size for child in path.rglob("*") if child.is_file() and not child.is_symlink())
+    return sum(path_size(CACHE_ROOT / relative) for relative in _owned_relatives(name))
 
 
 def _is_nonempty_file(path: Path) -> bool:
     return path.is_file() and path.stat().st_size > 0
-
-
-def _remove_path(path: Path) -> None:
-    if path.is_dir() and not path.is_symlink():
-        shutil.rmtree(path)
-    else:
-        path.unlink(missing_ok=True)
 
 
 def _remove_modelscope_locks() -> None:

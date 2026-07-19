@@ -23,6 +23,8 @@ def test_capabilities_agent_contract() -> None:
     assert payload["operation"] == "capabilities"
     assert payload["result"]["agent_policy"]["implicit_download"] is False
     assert payload["result"]["agent_policy"]["inference_timeout_owner"] == "caller"
+    assert payload["result"]["detect"]["model"] == "PicoDet-L 416 COCO"
+    assert payload["result"]["detect"]["provider"] == "CPUExecutionProvider"
     assert payload["result"]["asr"]["model"] == "SenseVoiceSmall INT8 ONNX"
     assert payload["result"]["tts"]["sample_rate"] == 48_000
 
