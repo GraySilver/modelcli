@@ -8,9 +8,54 @@
 
 **简体中文** | [English](./README_EN.md)
 
-[快速开始](#快速开始) | [Agent Skill](#agent-skill) | [效果预览](#效果预览) | [命令示例](#命令示例) | [Agent JSON 协议](#agent-json-协议) | [开发](#开发)
+[Agent Skill](#agent-skill) | [快速开始](#快速开始) | [效果预览](#效果预览) | [命令示例](#命令示例) | [Agent JSON 协议](#agent-json-协议) | [开发](#开发)
 
 > 在本地统一运行目标检测、OCR、语音识别和语音合成，为人类和 Agent 提供同一套命令行入口。
+
+## Agent Skill
+
+把下面这句话直接发给 Codex、Claude Code 或 OpenClaw：
+
+```text
+帮我安装 ModelCLI Agent Skill（https://github.com/GraySilver/modelcli）：请读取仓库里的 install-skill.sh，根据你当前是 Codex、Claude Code 还是 OpenClaw 选择对应的 --target 安装，验证 SKILL.md 已出现在正确的用户级 Skills 目录，并告诉我是否需要重启。
+```
+
+仓库内置一个统一的 [`modelcli` Agent Skill](./skills/modelcli/SKILL.md)，覆盖目标检测、OCR、语音识别、语音合成、模型管理和诊断，可用于 Codex、Claude Code 与 OpenClaw。三者在本仓库中都能自动发现该 Skill：Codex 和 OpenClaw 通过 [`.agents/skills/modelcli`](./.agents/skills/modelcli)，Claude Code 通过 [`.claude/skills/modelcli`](./.claude/skills/modelcli)。
+
+打开仓库后，可以直接向 Agent 发出请求：
+
+```text
+# Codex
+$modelcli 识别 samples/images/ocr-sign.png 中的文字
+
+# Claude Code / OpenClaw
+/modelcli 检测 samples/images/detect-street.jpg 里的行人和汽车
+```
+
+也可以手动将 Skill 安装到个人目录，让其他项目同样可用。安装脚本支持 macOS 和 Linux，默认同时安装全部目标：
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/GraySilver/modelcli/main/install-skill.sh | sh
+```
+
+按 Agent 单独安装或从本地仓库安装：
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/GraySilver/modelcli/main/install-skill.sh \
+  | sh -s -- --target claude
+
+./install-skill.sh --target codex
+./install-skill.sh --target openclaw
+./install-skill.sh --target all
+```
+
+Codex 与 OpenClaw 共用 `~/.agents/skills/modelcli`，Claude Code 使用 `~/.claude/skills/modelcli`。安装后重启对应 Agent。卸载由此脚本安装的 Skill：
+
+```bash
+./install-skill.sh --target all --uninstall
+```
+
+Skill 通过确定性的 JSON 包装器调用 ModelCLI。如果找不到 `modelcli`，它会运行官方 `install.sh`；普通推理缺少模型时也允许自动下载。覆盖输出、刷新或删除模型缓存以及 `doctor --deep` 等敏感操作，仍会先要求用户明确确认。
 
 ModelCLI 将多个开源小模型封装为一致的 CLI。默认模式适合直接在终端中使用；加上全局 `--json` 后，会输出稳定、可解析的 JSON 信封，方便 JarvisBot、自动化脚本和其他 Agent 通过子进程调用。
 
@@ -67,45 +112,6 @@ modelcli models verify all
 ```
 
 目标检测、ASR 和 TTS 模型合计约 590 MB；OCR 与 VAD 随 Python 依赖提供。
-
-## Agent Skill
-
-仓库内置一个统一的 [`modelcli` Agent Skill](./skills/modelcli/SKILL.md)，覆盖目标检测、OCR、语音识别、语音合成、模型管理和诊断，可用于 Codex、Claude Code 与 OpenClaw。三者在本仓库中都能自动发现该 Skill：Codex 和 OpenClaw 通过 [`.agents/skills/modelcli`](./.agents/skills/modelcli)，Claude Code 通过 [`.claude/skills/modelcli`](./.claude/skills/modelcli)。
-
-打开仓库后，可以直接向 Agent 发出请求：
-
-```text
-# Codex
-$modelcli 识别 samples/images/ocr-sign.png 中的文字
-
-# Claude Code / OpenClaw
-/modelcli 检测 samples/images/detect-street.jpg 里的行人和汽车
-```
-
-也可以将 Skill 安装到个人目录，让其他项目同样可用。安装脚本支持 macOS 和 Linux，默认同时安装全部目标：
-
-```bash
-curl -LsSf https://raw.githubusercontent.com/GraySilver/modelcli/main/install-skill.sh | sh
-```
-
-按 Agent 单独安装或从本地仓库安装：
-
-```bash
-curl -LsSf https://raw.githubusercontent.com/GraySilver/modelcli/main/install-skill.sh \
-  | sh -s -- --target claude
-
-./install-skill.sh --target codex
-./install-skill.sh --target openclaw
-./install-skill.sh --target all
-```
-
-Codex 与 OpenClaw 共用 `~/.agents/skills/modelcli`，Claude Code 使用 `~/.claude/skills/modelcli`。安装后重启对应 Agent。卸载由此脚本安装的 Skill：
-
-```bash
-./install-skill.sh --target all --uninstall
-```
-
-Skill 通过确定性的 JSON 包装器调用 ModelCLI。如果找不到 `modelcli`，它会运行官方 `install.sh`；普通推理缺少模型时也允许自动下载。覆盖输出、刷新或删除模型缓存以及 `doctor --deep` 等敏感操作，仍会先要求用户明确确认。
 
 ## 效果预览
 
