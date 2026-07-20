@@ -1,90 +1,175 @@
-# modelcli
+# ModelCLI
 
-本地小模型命令行工具，把目标检测、OCR、ASR、TTS 封装为统一 CLI。既可供人直接使用，也提供稳定的 Agent JSON 协议供 JarvisBot 等调用方通过子进程执行。
+[![Commit Activity](https://img.shields.io/github/commit-activity/m/GraySilver/modelcli)](https://github.com/GraySilver/modelcli/graphs/commit-activity)
+[![Version](https://img.shields.io/badge/version-0.3.0-0A7B83)](https://github.com/GraySilver/modelcli/blob/main/src/modelcli/__init__.py)
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)](https://github.com/GraySilver/modelcli/blob/main/pyproject.toml)
+[![Agent JSON](https://img.shields.io/badge/Agent%20JSON-v1-2F855A)](#agent-json-%E5%8D%8F%E8%AE%AE)
+[![License](https://img.shields.io/github/license/GraySilver/modelcli)](https://github.com/GraySilver/modelcli/blob/main/LICENSE)
 
-- 目标检测：PicoDet-L 416 COCO，CPU ONNX，80 个常见物体类别，支持结构化框和标注图
-- OCR：PP-OCRv4 / RapidOCR，中英混合图片识别，支持文本行、坐标、置信度和标注图
-- ASR：SenseVoiceSmall INT8 ONNX，中/英/粤/日/韩，支持 VAD、时间段、情绪和事件
-- TTS：MOSS-TTS-Nano 声音克隆，固定 48 kHz 立体声
+**简体中文** | [English](#english)
 
-模型安装后可离线运行。默认缓存位于 `~/Library/Caches/modelcli`（其他平台遵循 `platformdirs`）。
+[快速开始](#快速开始) | [命令示例](#命令示例) | [Agent JSON 协议](#agent-json-协议) | [模型管理](#模型管理) | [开发](#开发)
 
-## 安装
+> 在本地统一运行目标检测、OCR、语音识别和语音合成，为人类和 Agent 提供同一套命令行入口。
 
-要求 Python 3.11 或 3.12，以及 `uv`：
+ModelCLI 将多个开源小模型封装为一致的 CLI。默认模式适合直接在终端中使用；加上全局 `--json` 后，会输出稳定、可解析的 JSON 信封，方便 JarvisBot、自动化脚本和其他 Agent 通过子进程调用。
+
+模型下载一次后即可离线推理。默认缓存位于 `~/Library/Caches/modelcli`；Linux 等其他平台遵循 [`platformdirs`](https://platformdirs.readthedocs.io/) 的用户缓存目录约定。
+
+| 能力 | 默认模型 | 输入 | 输出 |
+| --- | --- | --- | --- |
+| 目标检测 | PicoDet-L 416 COCO | 图片 | 80 类物体、置信度、像素坐标、标注图 |
+| OCR | PP-OCRv4 mobile | 图片 | 中英文文本、文本行、坐标、置信度、标注图 |
+| ASR | SenseVoiceSmall INT8 ONNX | WAV / FLAC / MP3 | 中、英、粤、日、韩文本，时间段、情绪和事件 |
+| TTS | MOSS-TTS-Nano | 文本 + 可选参考音频 | 48 kHz 立体声克隆语音 |
+
+## 快速开始
+
+一行安装，适用于 macOS 和 Linux：
 
 ```bash
-git clone <this-repo> modelcli
-cd modelcli
-uv sync --frozen
+curl -LsSf https://raw.githubusercontent.com/GraySilver/modelcli/main/install.sh | sh
 ```
 
-CLI 位于 `.venv/bin/modelcli`：
+安装脚本会在需要时安装 `uv`，使用 Python 3.12 和仓库中的 `uv.lock` 创建隔离环境，并将 `modelcli` 放入 `~/.local/bin`。安装代码和 Python 依赖时不会下载推理模型。
 
 ```bash
-.venv/bin/modelcli --version
-.venv/bin/modelcli --help
+modelcli --version
+modelcli doctor
+modelcli models list
 ```
 
-## 人类模式
-
-人类模式是默认模式。推理缺少模型时会自动下载；状态和进度写 stderr，主要文本结果写 stdout。
+如果终端提示找不到 `modelcli`，将用户命令目录加入 `PATH`：
 
 ```bash
-# 目标检测；--class 可重复，使用英文 COCO 类别名
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+也可以先检查脚本再执行：
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/GraySilver/modelcli/main/install.sh -o install.sh
+less install.sh
+sh install.sh
+```
+
+使用 Python 3.11 安装：
+
+```bash
+MODELCLI_PYTHON=3.11 sh install.sh
+```
+
+首次推理缺少模型时，人类模式会自动下载对应模型。希望提前准备全部模型，可运行：
+
+```bash
+modelcli models prefetch
+modelcli models verify all
+```
+
+目标检测、ASR 和 TTS 模型合计约 590 MB；OCR 与 VAD 随 Python 依赖提供。
+
+## 核心特性
+
+### 一套命令处理本地多模态任务
+
+```bash
+modelcli detect photo.jpg --class person --draw-boxes detected.jpg
+modelcli ocr screenshot.png --markdown
+modelcli asr meeting.wav --lang zh --timestamps
+modelcli tts "你好，世界。" --out hello.wav
+```
+
+每种能力共享一致的模型管理、错误码、进度输出和文件安全策略。下载完成后，图片、音频和文本都留在本机处理。
+
+### 面向 Agent 的稳定接口
+
+```bash
+modelcli --json detect photo.jpg --class person
+modelcli --json ocr screenshot.png
+modelcli --json asr meeting.wav --lang zh
+modelcli --json tts "你好，世界。" --out /absolute/path/hello.wav
+```
+
+Agent 模式下 stdout 只包含一个 JSON 文档，进度和诊断信息只写入 stderr。成功与失败都使用同一套信封结构，调用方无需解析终端文案。
+
+### 可验证的模型缓存
+
+ModelCLI 为目标检测、ASR 和 TTS 模型生成本地 manifest，记录模型来源、请求版本、文件大小和 SHA-256。`models verify` 可以发现缺失、损坏或被修改的文件；`models install --refresh` 会在临时缓存中完成下载和验证，再替换现有模型。
+
+### 安全的输出发布
+
+TTS 音频以及目标检测/OCR 标注图默认拒绝覆盖已有文件。传入 `--force` 时，结果先写入同目录临时文件，验证成功后再原子替换目标；失败或中断不会破坏原文件。
+
+## 命令示例
+
+### 目标检测
+
+```bash
+# 默认保留置信度不低于 0.5 的全部 COCO 类别
 modelcli detect photo.jpg
-modelcli detect photo.jpg --confidence 0.5 --class person --class car
-modelcli detect photo.jpg --draw-boxes detected.jpg
-modelcli detect photo.jpg --draw-boxes detected.jpg --force
 
-# OCR
-modelcli ocr photo.png
-modelcli ocr photo.png --out result.txt
-modelcli ocr photo.png --markdown
-modelcli ocr photo.png --draw-boxes annotated.png
-modelcli ocr photo.png --draw-boxes annotated.png --force
+# --class 可重复，类别名使用英文 COCO 名称
+modelcli detect street.jpg --confidence 0.6 --class person --class car
 
-# ASR
+# 保存带检测框的图片；覆盖已有文件时需要 --force
+modelcli detect street.jpg --draw-boxes detected.jpg --force
+```
+
+目标检测固定使用 PicoDet-L 416 COCO 和 `CPUExecutionProvider`。它只识别 COCO 的 80 个固定类别，不是开放词汇视觉模型，也不用于识别按钮、输入框等 UI 元素。
+
+### OCR
+
+```bash
+modelcli ocr document.png
+modelcli ocr document.png --markdown
+modelcli ocr document.png --out result.txt
+modelcli ocr document.png --draw-boxes annotated.png
+```
+
+### 语音识别
+
+```bash
 modelcli asr recording.wav
 modelcli asr recording.wav --lang zh --timestamps
 modelcli asr recording.wav --lang en --emotion
 modelcli asr recording.wav --no-vad --out transcript.txt
-
-# TTS；人类模式未指定 --out 时默认写 ./output.wav
-modelcli tts "你好世界。"
-modelcli tts "你好世界。" --out hello.wav
-modelcli tts @input.txt --out book.wav
-modelcli tts "你好" --prompt-audio my_voice.wav --out cloned.wav
-modelcli tts "你好" --out hello.wav --force
 ```
 
-TTS 的 `--max-duration` 是生成 frame 上限，不是墙钟超时。默认参考音是 MOSS-TTS-Nano 官方中文女声；`--prompt-audio` 可指定自己的参考音频。
+`--lang` 支持 `auto`、`zh`、`en`、`yue`、`ja` 和 `ko`。默认启用 Silero VAD，将长音频切分为有效语音段。
 
-## Agent 模式
+### 语音合成
 
-全局 `--json` 开启 Agent 协议。该选项必须放在子命令之前：
+```bash
+# 未指定 --out 时，人类模式默认写入 ./output.wav
+modelcli tts "你好，世界。"
+modelcli tts "你好，世界。" --out hello.wav
+modelcli tts @input.txt --out audiobook.wav
+modelcli tts "这是一段克隆语音。" --prompt-audio my_voice.wav --out cloned.wav
+```
+
+未传 `--prompt-audio` 时使用随 TTS 模型安装的默认中文女声。`--max-duration` 控制生成 frame 上限，不是进程的墙钟超时。
+
+## Agent JSON 协议
+
+`--json` 是全局选项，必须放在子命令之前：
 
 ```bash
 modelcli --json capabilities
 modelcli --json doctor
-modelcli --json detect photo.jpg --class person
-modelcli --json ocr photo.png
-modelcli --json asr recording.wav --lang zh
-modelcli --json tts "你好世界。" --out /absolute/path/speech.wav
 modelcli --json models list
+modelcli --json detect photo.jpg --class person
 ```
 
-Agent 模式具有以下固定行为：
+固定行为：
 
-- 成功和失败都只向 stdout 写一个 JSON 文档，并以换行结束。
-- 进度、依赖库输出和 `--debug` traceback 只写 stderr。
-- 缺少模型时默认返回 `MODEL_NOT_INSTALLED`，不会隐式下载。
-- 使用全局 `--allow-download` 可显式允许推理期间下载：`modelcli --json --allow-download asr input.wav`。
+- stdout 始终只有一个以换行结尾的 JSON 文档；stderr 只用于进度、依赖日志和 `--debug` traceback。
+- 缺少模型时返回 `MODEL_NOT_INSTALLED`，不会隐式下载。
+- 需要在推理期间下载时，显式加入全局 `--allow-download`。
 - `models install` 和 `models install --refresh` 本身就是显式下载动作，不需要 `--allow-download`。
-- TTS 必须显式传 `--out`，返回值中的输出路径为绝对路径。
-- ModelCLI 不实现推理墙钟超时。调用方负责 timeout、SIGTERM/SIGKILL；退出码 `124` 为调用方超时保留。
+- TTS 必须显式传入 `--out`，结果中的输出路径为绝对路径。
+- 调用方负责墙钟超时以及 SIGTERM/SIGKILL；退出码 `124` 为调用方超时保留。
 
-成功信封：
+成功信封示例：
 
 ```json
 {
@@ -103,7 +188,7 @@ Agent 模式具有以下固定行为：
 }
 ```
 
-失败信封：
+失败信封示例：
 
 ```json
 {
@@ -125,7 +210,7 @@ Agent 模式具有以下固定行为：
 退出码：
 
 | 退出码 | 含义 |
-|---:|---|
+| ---: | --- |
 | `0` | 成功 |
 | `2` | CLI 参数或用法错误 |
 | `3` | 输入无效 |
@@ -135,18 +220,7 @@ Agent 模式具有以下固定行为：
 | `124` | 调用方超时保留，ModelCLI 自身不返回 |
 | `130` | SIGINT / Ctrl-C |
 
-旧的 `ocr --json`、`models list --json` 等子命令局部选项已删除。Agent 必须使用全局形式 `modelcli --json COMMAND ...`。
-
-### JarvisBot 子进程调用
-
-JarvisBot 直接运行命令行时，应分别捕获 stdout、stderr 和返回码，并为整个进程设置墙钟超时。例如：
-
-```bash
-/Users/jarvis/Documents/Coding/modelcli/.venv/bin/modelcli \
-  --json detect /absolute/path/input.jpg --class person
-```
-
-stdout 按单个 JSON 文档解析；非零返回码仍要解析同一个错误信封。stderr 只用于日志和诊断，不能当作业务结果。超时后由 JarvisBot 终止进程并对上层报告保留码 `124`。
+调用方应分别捕获 stdout、stderr 和返回码。即使返回码非零，也应从 stdout 解析同一个错误信封；stderr 不能作为业务结果解析。
 
 ## 模型管理
 
@@ -156,55 +230,24 @@ modelcli models install detect
 modelcli models install asr
 modelcli models install tts
 modelcli models install all
-modelcli models verify detect
-modelcli models verify asr
-modelcli models verify tts
 modelcli models verify all
 modelcli models install detect --refresh
-modelcli models install asr --refresh
 modelcli models remove detect
-modelcli models remove asr
-modelcli models remove tts
-modelcli models remove all
+modelcli models prefetch
+modelcli models clean
 ```
 
-`models prefetch` 等价于 `models install all`，`models clean` 等价于 `models remove all`。
+`prefetch` 等价于 `install all`，`clean` 等价于 `remove all`。`all` 按 `detect -> asr -> tts` 的顺序处理三个可下载能力。
 
-每个已安装的目标检测/ASR/TTS 能力有本地 manifest，记录上游模型标识、请求版本、安装时间、ModelCLI 版本、相对路径、大小和 SHA-256。目标检测固定到 PaddleDetection `release/2.8` 的官方 ONNX，ASR 固定请求 `v2.0.5`，TTS 请求 `master`；manifest 不虚构不可变的上游提交，本地 SHA-256 集合才是已安装内容的事实源。
+| 能力 | 模型与版本 | 约大小 | 许可 |
+| --- | --- | ---: | --- |
+| 目标检测 | PicoDet-L 416 COCO，PaddleDetection `release/2.8` | 23.2 MB | Apache 2.0 |
+| OCR | PP-OCRv4 mobile | 15 MB | Apache 2.0 |
+| ASR | `iic/SenseVoiceSmall-onnx@v2.0.5` INT8 | 242 MB | MIT |
+| VAD | Silero VAD | 10 MB 内 | MIT |
+| TTS | MOSS-TTS-Nano + Audio Tokenizer + prompt | 326 MB | Apache 2.0 |
 
-- 符合当前模型标准且文件完整、但缺少 manifest 的缓存，会先通过真实加载验证，再在本地补建 manifest。
-- 普通 install 不会静默更新已有、已校验的模型。
-- `--refresh` 在隔离临时 cache 中下载、加载、生成 manifest，验证成功后再替换；失败保留旧模型。
-- TTS 主模型、音频 tokenizer 和默认 prompt 是一个更新单元。
-- install、refresh、remove、verify、推理和 `doctor --deep` 按能力使用跨进程锁，最长等待 30 秒；超时返回可重试错误 `MODEL_BUSY`。
-- MOSS-TTS-Nano Python 依赖和默认 prompt URL 固定到提交 `11619374849c649486584e3b10ed55b176a924ee`；默认 prompt 下载后校验 SHA-256。
-- ASR 固定使用 `iic/SenseVoiceSmall-onnx@v2.0.5` 的量化模型。运行库需要但 ONNX 仓未包含的官方 SentencePiece 文件从原模型仓下载，并校验固定 SHA-256。
-- 目标检测固定使用 PicoDet-L 416 COCO 的官方带后处理 ONNX，强制 `CPUExecutionProvider`，模型下载后校验固定 SHA-256。
-
-`all`、`prefetch` 和 `clean` 按 `detect → asr → tts` 管理全部三个可下载能力。`remove` 只删除 ModelCLI 专属的目标模型、prompt 和 manifest，不删除其他缓存。旧版 `iic__SenseVoiceSmall` 缓存不会自动迁移或删除，`remove asr` 也只管理当前量化模型。重复 remove 成功并报告 `already missing`。
-
-### 目标检测边界
-
-`detect` 只识别 COCO 的 80 个固定类别，不是开放词汇视觉模型，也不识别按钮、输入框等 UI 元素。`--class` 接受现代英文 COCO 名称，例如 `person`、`motorcycle`、`airplane`、`couch`、`potted plant`、`dining table` 和 `tv`。
-
-Agent 结果返回原图尺寸、实际阈值、类别过滤条件和按置信度降序排列的原图像素坐标：
-
-```json
-{
-  "width": 1920,
-  "height": 1080,
-  "confidence_threshold": 0.5,
-  "class_filter": ["person"],
-  "detections": [
-    {
-      "class_id": 0,
-      "label": "person",
-      "confidence": 0.9321,
-      "bbox": {"x1": 112, "y1": 84, "x2": 530, "y2": 1018}
-    }
-  ]
-}
-```
+安装、刷新、删除、校验、推理和 `doctor --deep` 按能力使用跨进程锁。普通安装不会静默更新已经校验的模型；`--refresh` 成功前会保留旧模型。
 
 ## 诊断
 
@@ -214,44 +257,353 @@ modelcli doctor
 modelcli doctor --deep
 ```
 
-`capabilities` 报告 CLI/schema 版本、命令和选项、目标检测/OCR/ASR/TTS 能力、Python/平台/设备/CUDA/ONNX provider、cache 目录、模型状态和 Agent 下载/超时策略。
+`capabilities` 报告 CLI/schema 版本、命令和选项、运行设备、ONNX provider、缓存目录及模型状态。`doctor` 默认进行依赖、目录可写性、模型文件、manifest 和 hash 检查；`--deep` 还会实际加载已安装模型。两种诊断都不会下载缺失模型。
 
-`doctor` 默认只做静态检查：依赖、cache/temp/当前输出目录可写性、模型必需文件、manifest/hash 和运行设备信息。`doctor --deep` 额外加载已安装的目标检测/ASR/TTS 模型。两种模式都不会下载缺失模型。
+## 更新与卸载
 
-## 输出安全
-
-TTS 音频、目标检测和 OCR 标注图默认拒绝覆盖现有文件，冲突返回 `OUTPUT_EXISTS`。传 `--force` 时，ModelCLI 先写同目录隐藏临时文件，验证完成后使用原子替换发布；错误或 SIGINT 会清理临时文件并保留原目标。
-
-文本输出由 `--out` 指定时会写文件；OCR/ASR Agent 结果仍完整包含在 JSON 信封中。
-
-## 模型与依赖
-
-| 能力 | 模型 | 约大小 | 来源 |
-|---|---|---:|---|
-| 目标检测 | PicoDet-L 416 COCO FP32 ONNX | 23.2 MB | PaddleDetection `release/2.8` |
-| OCR | PP-OCRv4 mobile | 15 MB | Python 包内置 |
-| ASR | SenseVoiceSmall INT8 ONNX | 约 242 MB | ModelScope `iic/SenseVoiceSmall-onnx@v2.0.5` |
-| VAD | Silero VAD | 10 MB 内 | Python 包内置 |
-| TTS | MOSS-TTS-Nano + Audio Tokenizer + prompt | 310 MB | ModelScope / 固定提交 prompt |
-
-目标检测、OCR 和 ASR 使用 ONNXRuntime，VAD 和 TTS 使用 PyTorch。目标检测固定 CPU provider；其他 ONNX 能力沿用各自运行时策略。ModelScope 单文件 HTTP 下载超时由 `MODELSCOPE_DOWNLOAD_TIMEOUT` 控制；ModelCLI 未设置时默认使用 120 秒。
-
-## 开发与验证
+重新执行安装脚本即可从 `main` 更新，模型缓存不会重复下载：
 
 ```bash
-uv lock --check
+curl -LsSf https://raw.githubusercontent.com/GraySilver/modelcli/main/install.sh | sh
+```
+
+卸载代码和 Python 环境：
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/GraySilver/modelcli/main/install.sh | sh -s -- --uninstall
+```
+
+卸载脚本不会删除模型缓存。如需一并清理，先运行 `modelcli models clean`。
+
+## 从源码运行
+
+需要 Python 3.11 或 3.12，以及 [`uv`](https://docs.astral.sh/uv/)：
+
+```bash
+git clone https://github.com/GraySilver/modelcli.git
+cd modelcli
 uv sync --frozen
-.venv/bin/python -m pytest -q
-.venv/bin/python -m compileall -q src
+uv run modelcli --help
+```
+
+## 开发
+
+```bash
+git clone https://github.com/GraySilver/modelcli.git
+cd modelcli
+
+uv sync --frozen
+uv lock --check
+uv run pytest -q
+uv run python -m compileall -q src
 uv build
 ```
 
-模型、manifest、音频、cache、虚拟环境、构建产物和临时文件不得提交到仓库。
+模型、manifest、音频、缓存、虚拟环境、构建产物和临时文件不应提交到仓库。
 
-## 模型许可
+## License
 
-- RapidOCR：Apache 2.0
-- PicoDet / PaddleDetection：Apache 2.0
-- SenseVoice：MIT
-- Silero VAD：MIT
-- MOSS-TTS-Nano：Apache 2.0
+ModelCLI 使用 [Apache License 2.0](./LICENSE)。各模型及运行库仍遵循各自的许可证；分发或商用前请同时核对对应上游项目的条款。
+
+---
+
+## English
+
+[简体中文](#modelcli) | **English**
+
+[Quick Start](#quick-start) | [Examples](#command-examples) | [Agent JSON Protocol](#agent-json-protocol) | [Model Management](#model-management) | [Development](#development)
+
+> Run object detection, OCR, speech recognition, and speech synthesis locally through one command-line interface for both humans and agents.
+
+ModelCLI packages several open-source small models behind a consistent CLI. Its default mode is designed for direct terminal use. With the global `--json` option, it emits a stable, machine-readable JSON envelope for JarvisBot, automation scripts, and other agents invoking it as a subprocess.
+
+Once downloaded, models can run offline. The default cache directory is `~/Library/Caches/modelcli` on macOS. Other platforms follow the user cache directory conventions provided by [`platformdirs`](https://platformdirs.readthedocs.io/).
+
+| Capability | Default model | Input | Output |
+| --- | --- | --- | --- |
+| Object detection | PicoDet-L 416 COCO | Image | 80 object classes, confidence scores, pixel coordinates, annotated images |
+| OCR | PP-OCRv4 mobile | Image | Chinese/English text, lines, coordinates, confidence scores, annotated images |
+| ASR | SenseVoiceSmall INT8 ONNX | WAV / FLAC / MP3 | Chinese, English, Cantonese, Japanese, or Korean text; segments, emotions, and events |
+| TTS | MOSS-TTS-Nano | Text and optional reference audio | 48 kHz stereo cloned speech |
+
+## Quick Start
+
+Install with one command on macOS or Linux:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/GraySilver/modelcli/main/install.sh | sh
+```
+
+The installer installs `uv` when needed, creates an isolated environment with Python 3.12 and the repository's `uv.lock`, and exposes `modelcli` in `~/.local/bin`. Installing the application and its Python dependencies does not download inference models.
+
+```bash
+modelcli --version
+modelcli doctor
+modelcli models list
+```
+
+If your shell cannot find `modelcli`, add the user command directory to `PATH`:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+To inspect the installer before running it:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/GraySilver/modelcli/main/install.sh -o install.sh
+less install.sh
+sh install.sh
+```
+
+To install with Python 3.11:
+
+```bash
+MODELCLI_PYTHON=3.11 sh install.sh
+```
+
+In human mode, the model required by an inference command is downloaded automatically the first time it is needed. To prepare all models in advance:
+
+```bash
+modelcli models prefetch
+modelcli models verify all
+```
+
+The downloadable object detection, ASR, and TTS models total approximately 590 MB. OCR and VAD are bundled with the Python dependencies.
+
+## Key Features
+
+### One CLI for local multimodal tasks
+
+```bash
+modelcli detect photo.jpg --class person --draw-boxes detected.jpg
+modelcli ocr screenshot.png --markdown
+modelcli asr meeting.wav --lang en --timestamps
+modelcli tts "Hello, world." --out hello.wav
+```
+
+Every capability shares the same model management, exit codes, progress reporting, and file-safety behavior. After model installation, images, audio, and text remain on the local machine during inference.
+
+### A stable interface for agents
+
+```bash
+modelcli --json detect photo.jpg --class person
+modelcli --json ocr screenshot.png
+modelcli --json asr meeting.wav --lang en
+modelcli --json tts "Hello, world." --out /absolute/path/hello.wav
+```
+
+In Agent mode, stdout contains exactly one JSON document. Progress and diagnostic messages go only to stderr. Both success and failure use the same envelope format, so callers never need to parse terminal prose.
+
+### Verifiable model caches
+
+ModelCLI generates local manifests for object detection, ASR, and TTS models. Each manifest records the upstream source, requested revision, file size, and SHA-256 digest. `models verify` detects missing, damaged, or modified files. `models install --refresh` downloads and validates a replacement in a temporary cache before publishing it over the installed model.
+
+### Safe output publishing
+
+TTS audio and annotated detection/OCR images refuse to overwrite existing files by default. With `--force`, ModelCLI first writes to a temporary file in the destination directory, validates the result, and then atomically replaces the target. Failures and interruptions leave the previous file intact.
+
+## Command Examples
+
+### Object detection
+
+```bash
+# Keep all COCO classes with confidence >= 0.5
+modelcli detect photo.jpg
+
+# Repeat --class to keep multiple English COCO class names
+modelcli detect street.jpg --confidence 0.6 --class person --class car
+
+# Save an annotated image; --force is required to replace an existing file
+modelcli detect street.jpg --draw-boxes detected.jpg --force
+```
+
+Object detection always uses PicoDet-L 416 COCO with `CPUExecutionProvider`. It recognizes the 80 fixed COCO classes. It is not an open-vocabulary vision model and is not intended to identify UI elements such as buttons or text fields.
+
+### OCR
+
+```bash
+modelcli ocr document.png
+modelcli ocr document.png --markdown
+modelcli ocr document.png --out result.txt
+modelcli ocr document.png --draw-boxes annotated.png
+```
+
+### Speech recognition
+
+```bash
+modelcli asr recording.wav
+modelcli asr recording.wav --lang en --timestamps
+modelcli asr recording.wav --lang zh --emotion
+modelcli asr recording.wav --no-vad --out transcript.txt
+```
+
+`--lang` accepts `auto`, `zh`, `en`, `yue`, `ja`, and `ko`. Silero VAD is enabled by default to split long audio into active speech segments.
+
+### Speech synthesis
+
+```bash
+# Human mode writes to ./output.wav when --out is omitted
+modelcli tts "Hello, world."
+modelcli tts "Hello, world." --out hello.wav
+modelcli tts @input.txt --out audiobook.wav
+modelcli tts "This is a cloned voice." --prompt-audio my_voice.wav --out cloned.wav
+```
+
+When `--prompt-audio` is omitted, ModelCLI uses the default Chinese female prompt installed with the TTS model. `--max-duration` limits generated frames; it is not a wall-clock process timeout.
+
+## Agent JSON Protocol
+
+`--json` is a global option and must appear before the subcommand:
+
+```bash
+modelcli --json capabilities
+modelcli --json doctor
+modelcli --json models list
+modelcli --json detect photo.jpg --class person
+```
+
+The protocol has the following fixed behavior:
+
+- stdout contains exactly one newline-terminated JSON document; stderr is reserved for progress, dependency logs, and `--debug` tracebacks.
+- A missing model returns `MODEL_NOT_INSTALLED`; Agent mode never downloads a model implicitly.
+- Add the global `--allow-download` option to explicitly permit a download during inference.
+- `models install` and `models install --refresh` are already explicit download actions and do not require `--allow-download`.
+- TTS requires an explicit `--out` path, and output paths in the result are absolute.
+- The caller owns wall-clock timeouts and SIGTERM/SIGKILL handling. Exit code `124` is reserved for caller-reported timeouts.
+
+Success envelope:
+
+```json
+{
+  "schema_version": "1",
+  "ok": true,
+  "operation": "asr",
+  "result": {
+    "text": "hello",
+    "language": "en",
+    "segments": []
+  },
+  "meta": {
+    "modelcli_version": "0.3.0",
+    "elapsed_ms": 123
+  }
+}
+```
+
+Failure envelope:
+
+```json
+{
+  "schema_version": "1",
+  "ok": false,
+  "operation": "ocr",
+  "error": {
+    "code": "INVALID_IMAGE",
+    "message": "Input is not a readable image",
+    "retryable": false
+  },
+  "meta": {
+    "modelcli_version": "0.3.0",
+    "elapsed_ms": 4
+  }
+}
+```
+
+Exit codes:
+
+| Exit code | Meaning |
+| ---: | --- |
+| `0` | Success |
+| `2` | CLI argument or usage error |
+| `3` | Invalid input |
+| `4` | Model missing, installation failure, download failure, or verification failure |
+| `5` | Inference or internal error |
+| `6` | Output conflict or write failure |
+| `124` | Reserved for caller-reported timeouts; ModelCLI does not return it itself |
+| `130` | SIGINT / Ctrl-C |
+
+Callers should capture stdout, stderr, and the exit code separately. Even for a nonzero exit code, parse the error envelope from stdout. Do not interpret stderr as an application result.
+
+## Model Management
+
+```bash
+modelcli models list
+modelcli models install detect
+modelcli models install asr
+modelcli models install tts
+modelcli models install all
+modelcli models verify all
+modelcli models install detect --refresh
+modelcli models remove detect
+modelcli models prefetch
+modelcli models clean
+```
+
+`prefetch` is equivalent to `install all`, and `clean` is equivalent to `remove all`. The `all` target processes downloadable capabilities in the order `detect -> asr -> tts`.
+
+| Capability | Model and revision | Approx. size | License |
+| --- | --- | ---: | --- |
+| Object detection | PicoDet-L 416 COCO, PaddleDetection `release/2.8` | 23.2 MB | Apache 2.0 |
+| OCR | PP-OCRv4 mobile | 15 MB | Apache 2.0 |
+| ASR | `iic/SenseVoiceSmall-onnx@v2.0.5` INT8 | 242 MB | MIT |
+| VAD | Silero VAD | Under 10 MB | MIT |
+| TTS | MOSS-TTS-Nano + Audio Tokenizer + prompt | 326 MB | Apache 2.0 |
+
+Installation, refresh, removal, verification, inference, and `doctor --deep` acquire a per-capability cross-process lock. A normal installation never silently updates a verified model. A refresh keeps the old model until its replacement has downloaded and passed validation.
+
+## Diagnostics
+
+```bash
+modelcli capabilities
+modelcli doctor
+modelcli doctor --deep
+```
+
+`capabilities` reports CLI/schema versions, commands and options, runtime devices, ONNX providers, the cache directory, and model status. `doctor` checks dependencies, directory writability, model files, manifests, and hashes. `doctor --deep` also loads installed models. Neither command downloads missing models.
+
+## Updating and Uninstalling
+
+Run the installer again to update from `main`. Existing model caches are reused:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/GraySilver/modelcli/main/install.sh | sh
+```
+
+Remove the managed source checkout and Python environment:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/GraySilver/modelcli/main/install.sh | sh -s -- --uninstall
+```
+
+The uninstaller keeps model caches. Run `modelcli models clean` before uninstalling if you also want to remove them.
+
+## Running from Source
+
+Python 3.11 or 3.12 and [`uv`](https://docs.astral.sh/uv/) are required:
+
+```bash
+git clone https://github.com/GraySilver/modelcli.git
+cd modelcli
+uv sync --frozen
+uv run modelcli --help
+```
+
+## Development
+
+```bash
+git clone https://github.com/GraySilver/modelcli.git
+cd modelcli
+
+uv sync --frozen
+uv lock --check
+uv run pytest -q
+uv run python -m compileall -q src
+uv build
+```
+
+Do not commit models, manifests, generated audio, caches, virtual environments, build artifacts, or temporary files.
+
+## License
+
+ModelCLI is licensed under the [Apache License 2.0](./LICENSE). Individual models and runtime libraries remain subject to their own licenses; review the applicable upstream terms before redistribution or commercial use.
