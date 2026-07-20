@@ -24,6 +24,7 @@ Thumbs.db
 
 # Generated audio
 *.wav
+!samples/audio/*.wav
 !tests/fixtures/.gitkeep
 
 # Runtime model artifacts
