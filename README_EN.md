@@ -8,7 +8,7 @@
 
 [简体中文](./README.md) | **English**
 
-[Quick Start](#quick-start) | [Showcase](#model-showcase) | [Examples](#command-examples) | [Agent JSON Protocol](#agent-json-protocol) | [Model Management](#model-management) | [Development](#development)
+[Quick Start](#quick-start) | [Agent Skill](#agent-skill) | [Showcase](#model-showcase) | [Examples](#command-examples) | [Agent JSON Protocol](#agent-json-protocol) | [Development](#development)
 
 > Run object detection, OCR, speech recognition, and speech synthesis locally through one command-line interface for both humans and agents.
 
@@ -67,6 +67,45 @@ modelcli models verify all
 ```
 
 The downloadable object detection, ASR, and TTS models total approximately 590 MB. OCR and VAD are bundled with the Python dependencies.
+
+## Agent Skill
+
+The repository includes one unified [`modelcli` Agent Skill](./skills/modelcli/SKILL.md) for object detection, OCR, speech recognition, speech synthesis, model management, and diagnostics. Codex, Claude Code, and OpenClaw discover it automatically in this repository: Codex and OpenClaw use [`.agents/skills/modelcli`](./.agents/skills/modelcli), while Claude Code uses [`.claude/skills/modelcli`](./.claude/skills/modelcli).
+
+After opening the repository, invoke it directly from your agent:
+
+```text
+# Codex
+$modelcli extract the text from samples/images/ocr-sign.png
+
+# Claude Code / OpenClaw
+/modelcli detect people and cars in samples/images/detect-street.jpg
+```
+
+Install the skill in your personal directories to use it from other projects. The macOS and Linux installer targets all supported agents by default:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/GraySilver/modelcli/main/install-skill.sh | sh
+```
+
+Install for one agent or install from a local checkout:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/GraySilver/modelcli/main/install-skill.sh \
+  | sh -s -- --target claude
+
+./install-skill.sh --target codex
+./install-skill.sh --target openclaw
+./install-skill.sh --target all
+```
+
+Codex and OpenClaw share `~/.agents/skills/modelcli`; Claude Code uses `~/.claude/skills/modelcli`. Restart the selected agent after installation. To remove only copies managed by this installer:
+
+```bash
+./install-skill.sh --target all --uninstall
+```
+
+The skill invokes ModelCLI through a deterministic JSON wrapper. It runs the official `install.sh` when the `modelcli` command is missing and permits missing models to download during normal inference. Destructive or expensive operations, including overwriting output, refreshing or deleting model caches, and `doctor --deep`, still require explicit user confirmation.
 
 ## Model Showcase
 
